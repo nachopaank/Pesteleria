@@ -48,15 +48,28 @@ const es_host = {{ es_host|tojson }};
 let jugadores_estado = {};
 let partidasFotos = {};
 
+// Emitir join
 socket.emit("join",{codigo,nombre});
 
+// Recibir jugadores
 socket.on("jugadores",(jugadores)=>{
   jugadores_estado=jugadores;
+  renderJugadores();
+});
+
+// Recibir fotos
+socket.on("fotos_jugadores",(fotos)=>{
+  partidasFotos = fotos;
+  renderJugadores();
+});
+
+// Render de lista de jugadores
+function renderJugadores(){
   const ul=document.getElementById("jugadores");
   ul.innerHTML="";
-  for(let j in jugadores){
+  for(let j in jugadores_estado){
     const li=document.createElement("li");
-    let estado=jugadores[j];
+    let estado=jugadores_estado[j];
     let clase="";
     let texto_extra="";
     if(estado==="activo") clase="verde";
@@ -67,7 +80,19 @@ socket.on("jugadores",(jugadores)=>{
 
     const img=document.createElement("img");
     img.src = partidasFotos[j] || "/static/icon.png";
-    if(estado==="muerto") img.style.filter="grayscale(100%)";
+    if(estado==="muerto"){ 
+      img.style.filter="grayscale(100%)";
+      img.style.position="relative";
+      const cross=document.createElement("div");
+      cross.style.position="absolute";
+      cross.style.top="0";
+      cross.style.left="0";
+      cross.style.width="50px";
+      cross.style.height="50px";
+      cross.style.borderTop="2px solid red";
+      cross.style.borderLeft="2px solid red";
+      li.appendChild(cross);
+    }
     li.appendChild(img);
     li.appendChild(document.createTextNode(j + texto_extra));
 
@@ -79,10 +104,12 @@ socket.on("jugadores",(jugadores)=>{
     }
     ul.appendChild(li);
   }
-});
+}
 
+// Botón asignar roles
 document.getElementById("asignarBtn").addEventListener("click",()=>{socket.emit("asignar_roles",{codigo,nombre});});
 
+// Recibir roles descartados
 socket.on("roles_descartados",(lista)=>{
   const ul=document.getElementById("descartados");
   ul.innerHTML="";
@@ -93,6 +120,7 @@ socket.on("roles_descartados",(lista)=>{
   });
 });
 
+// Host: iniciar votación
 if(es_host){
   const div=document.createElement("div");
   div.innerHTML=`<input type="number" id="tiempo" placeholder="Tiempo en segundos">
@@ -104,6 +132,7 @@ if(es_host){
   };
 }
 
+// Votación
 socket.on("votacion_iniciada",(data)=>{
   const div=document.getElementById("votacion");
   div.innerHTML="";
@@ -111,20 +140,21 @@ socket.on("votacion_iniciada",(data)=>{
   if(jugadores_estado[nombre]==="muerto"){div.innerHTML+="<p>No puedes votar, estás muerto.</p>"; return;}
   if(data.ya_voto){div.innerHTML+="<p>Has votado.</p>"; return;}
   data.jugadores.forEach(j=>{
-    const btn=document.createElement("button");
-    btn.textContent=j;
-    btn.onclick=()=>{
-      socket.emit("votar",{codigo,votante:nombre,voto:j});
-      div.innerHTML="<p>Has votado.</p>";
-    };
-    div.appendChild(btn);
+    if(j!==nombre){ // no votar por sí mismo si quieres
+      const btn=document.createElement("button");
+      btn.textContent=j;
+      btn.onclick=()=>{
+        socket.emit("votar",{codigo,votante:nombre,voto:j});
+        div.innerHTML="<p>Has votado.</p>";
+      };
+      div.appendChild(btn);
+    }
   });
   const nadie=document.createElement("button");
   nadie.textContent="Nadie";
   nadie.onclick=()=>{
     socket.emit("votar",{codigo,votante:nombre,voto:"Nadie"});
     div.innerHTML="<p>Has votado.</p>";
-    socket.emit("votar",{codigo,votante:nombre,voto:"Nadie"});
   };
   div.appendChild(nadie);
 });
@@ -144,7 +174,7 @@ socket.on("votacion_finalizada",(resultados)=>{
   }
 });
 
-// Status de jugador: activo/inactivo
+// Estado activo/inactivo
 if(!es_host){
   document.addEventListener("visibilitychange",()=>{socket.emit("set_status",{codigo,nombre,status:!document.hidden});});
   socket.emit("set_status",{codigo,nombre,status:true});
