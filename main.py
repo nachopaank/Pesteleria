@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, join_room, emit
-import random, string, threading, time, os
+import random, string, os
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -8,6 +8,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Estructura de partidas
 # {codigo: {"jugadores":{nombre:estado}, "fotos":{nombre:url}, "roles_descartados":[], "votacion":None}}
 partidas = {}
+
 # ---- ROLES (pool fijo de 15) ----
 ROLES_BUEN_CIUDADANO = [
     "demonio", "rey", "adivina", "monja", "guerrero", "tonto del pueblo", "bruja"
@@ -19,9 +20,7 @@ ROL_DOCTOR = ["doctor peste"]
 ROL_HIJO = ["hijo del doctor"]
 
 ROLES_BASE = ROL_DOCTOR + ROL_HIJO + ROLES_BUEN_CIUDADANO + ROLES_CIUDADANO
-# (Total = 1 + 1 + 7 + 6 = 15)
-
-# Reglas de roles según número de jugadores
+# (Total = 15)
 
 # -----------------------------------
 # RUTAS
@@ -96,11 +95,8 @@ def set_status(data):
         }, to=codigo)
 
 # -----------------------------------
-# DESCARTAR ROLES
+# REGLAS Y ROLES
 # -----------------------------------
-import random
-from flask import request
-
 REGLAS = {
     5:  {"buen_ciudadano":2, "ciudadano":2, "doctor":1, "hijo":0},
     6:  {"buen_ciudadano":3, "ciudadano":2, "doctor":1, "hijo":0},
@@ -119,9 +115,6 @@ def asignar_roles(data):
         emit("error", "Partida no encontrada", to=request.sid)
         return
 
-    # Solo el host debe poder pulsar el botón (opcional: compruébalo si quieres)
-    # host = data.get("host")
-
     n_jugadores = len(partidas[codigo]["jugadores"])
     if n_jugadores not in REGLAS:
         emit("error", f"Número de jugadores {n_jugadores} no soportado", to=request.sid)
@@ -129,46 +122,25 @@ def asignar_roles(data):
 
     r = REGLAS[n_jugadores]
 
-    # 1) Selección por categorías con nombres reales
-    # Buen ciudadano
-    if r["buen_ciudadano"] > len(ROLES_BUEN_CIUDADANO):
-        emit("error", "No hay suficientes roles de buen ciudadano en el pool", to=request.sid)
-        return
     buenos = random.sample(ROLES_BUEN_CIUDADANO, r["buen_ciudadano"])
-
-    # Ciudadano
-    if r["ciudadano"] > len(ROLES_CIUDADANO):
-        emit("error", "No hay suficientes roles de ciudadano en el pool", to=request.sid)
-        return
     ciudadanos = random.sample(ROLES_CIUDADANO, r["ciudadano"])
-
-    # Doctor peste (siempre 1 según reglas)
     doctor = ROL_DOCTOR if r["doctor"] == 1 else []
-
-    # Hijo del doctor (0 o 1)
     hijo = ROL_HIJO if r["hijo"] == 1 else []
 
     roles_uso = doctor + hijo + buenos + ciudadanos
-    random.shuffle(roles_uso)  # mezclar para no revelar composición
+    random.shuffle(roles_uso)
 
-    # 2) Descartados = todos los 15 menos los que se usan
+    # Descartados
     roles_descartados = ROLES_BASE.copy()
     for rol in roles_uso:
-        # quitar una instancia exacta del rol usado
         if rol in roles_descartados:
             roles_descartados.remove(rol)
 
-    # Guardar en memoria y emitir
     partidas[codigo]["roles_descartados"] = roles_descartados
-    partidas[codigo]["roles_usados"] = roles_uso  # por si el host los necesita
+    partidas[codigo]["roles_usados"] = roles_uso
 
-    # Visible para TODOS: los que NO juegan esta partida
     emit("roles_descartados", roles_descartados, to=codigo)
-
-    # Opcional: enviar SOLO al host los que sí juegan (si tu frontend lo usa)
     emit("roles_no_descartados", roles_uso, to=request.sid)
-
-
 
 # -----------------------------------
 # MATAR JUGADOR
@@ -184,7 +156,7 @@ def matar_jugador(data):
     }, to=codigo)
 
 # -----------------------------------
-# VOTACION
+# VOTACION (timer con socketio.sleep)
 # -----------------------------------
 @socketio.on("iniciar_hoguera")
 def iniciar_hoguera(data):
@@ -199,13 +171,17 @@ def iniciar_hoguera(data):
         "finalizada": False
     }
     partidas[codigo]["votacion"] = votacion
-    threading.Thread(target=timer_votacion, args=(codigo,)).start()
+    socketio.start_background_task(timer_votacion, codigo)
     for j in votacion["jugadores_vivos"]:
-        emit("votacion_iniciada", {"jugadores": votacion["jugadores_vivos"], "tiempo": tiempo, "ya_voto": j in votacion["votos"]}, room=codigo)
+        emit("votacion_iniciada", {
+            "jugadores": votacion["jugadores_vivos"],
+            "tiempo": tiempo,
+            "ya_voto": j in votacion["votos"]
+        }, room=codigo)
 
 def timer_votacion(codigo):
-    while partidas[codigo]["votacion"]["tiempo_restante"] > 0:
-        time.sleep(1)
+    while partidas[codigo]["votacion"] and partidas[codigo]["votacion"]["tiempo_restante"] > 0:
+        socketio.sleep(1)
         partidas[codigo]["votacion"]["tiempo_restante"] -= 1
         socketio.emit("votacion_tick", partidas[codigo]["votacion"]["tiempo_restante"], to=codigo)
         if len(partidas[codigo]["votacion"]["votos"]) == len([j for j,s in partidas[codigo]["jugadores"].items() if s!="muerto"]):
@@ -214,7 +190,7 @@ def timer_votacion(codigo):
 
 def finalizar_votacion(codigo):
     votacion = partidas[codigo]["votacion"]
-    if votacion["finalizada"]:
+    if not votacion or votacion["finalizada"]:
         return
     votacion["finalizada"] = True
     resultados = {}
@@ -231,7 +207,11 @@ def votar(data):
     votacion = partidas[codigo]["votacion"]
     if votacion and votante in votacion["jugadores_vivos"] and votante not in votacion["votos"]:
         votacion["votos"][votante] = voto
-        emit("votacion_iniciada", {"jugadores": votacion["jugadores_vivos"], "tiempo": votacion["tiempo_restante"], "ya_voto": True}, room=request.sid)
+        emit("votacion_iniciada", {
+            "jugadores": votacion["jugadores_vivos"],
+            "tiempo": votacion["tiempo_restante"],
+            "ya_voto": True
+        }, room=request.sid)
 
 # -----------------------------------
 # RUN
