@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Unirse a Pestelería</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body { font-family:sans-serif; background:#f4f4f4; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; }
+.container { background:#fff; padding:20px; border-radius:10px; width:90%; max-width:400px; box-shadow:0 4px 8px rgba(0,0,0,0.1); text-align:center; }
+h2 { margin-bottom:20px; }
+input { width:calc(100% - 20px); padding:10px; margin:10px 0; border-radius:6px; border:1px solid #ccc; font-size:16px; }
+button { width:100%; padding:12px; border:none; border-radius:8px; background:#2196F3; color:#fff; font-size:16px; cursor:pointer; margin-top:10px; transition:0.2s; }
+button:hover { background:#1976d2; }
+</style>
+</head>
+<body>
+<div class="container">
+<h2>Unirse a Pestelería</h2>
+<form id="joinForm">
+  <input type="text" name="nombre" placeholder="Tu nombre" required>
+  <input type="text" name="codigo" placeholder="Código de sala" required>
+  <button type="submit">Unirse</button>
+</form>
+
+<video id="video" autoplay style="display:none;"></video>
+<canvas id="canvas" style="display:none;"></canvas>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const socket = io();
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+
+let fotoData = null;
+let usarCamara = true;
+
+// Intentamos acceder a la cámara
+navigator.mediaDevices.getUserMedia({ video: true })
+  .then(stream => { video.srcObject = stream; })
+  .catch(err => { usarCamara=false; console.log("No se pudo acceder a la cámara, se usará icon.png"); });
+
+document.getElementById("joinForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const nombre = e.target.nombre.value;
+  const codigo = e.target.codigo.value;
+
+  if(usarCamara){
+    const ctx = canvas.getContext("2d");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    fotoData = canvas.toDataURL("image/png");
+  } else {
+    fotoData = "/static/icon.png"; // Archivo icon.png en carpeta static
+  }
+
+  socket.emit("unirse_con_foto",{codigo,nombre,foto:fotoData});
+  window.location.href = `/sala/${codigo}/${nombre}`;
+};
+</script>
+</body>
+</html>
