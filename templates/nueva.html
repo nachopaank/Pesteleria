@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nueva Partida Pestelería</title>
+<style>
+body { font-family:sans-serif; background:#f4f4f4; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; }
+.container { background:#fff; padding:20px; border-radius:10px; width:90%; max-width:400px; box-shadow:0 4px 8px rgba(0,0,0,0.1); text-align:center; }
+h2 { margin-bottom:20px; }
+a { display:inline-block; padding:12px 20px; margin-top:10px; background:#4CAF50; color:#fff; border-radius:8px; text-decoration:none; font-size:16px; }
+a:hover { background:#45a049; }
+</style>
+</head>
+<body>
+<div class="container">
+<h2>Partida Creada</h2>
+<p>Código de la sala: <b>{{ codigo }}</b></p>
+<a href="{{ url_for('sala', codigo=codigo, nombre='HOST') }}">Ir a la sala (Host)</a>
+</div>
+</body>
+</html>

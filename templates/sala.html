@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sala {{ codigo }} - Pestelería</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+body { font-family:sans-serif; margin:0; padding:0; background:#f4f4f4; }
+.container { max-width:500px; margin:auto; padding:10px; background:#fff; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.1); }
+h1,h3 { text-align:center; }
+ul { list-style:none; padding:0; margin:0 0 20px 0; max-height:200px; overflow-y:auto; border:1px solid #ddd; background:#fff; border-radius:8px; }
+li { padding:8px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #eee; position:relative; }
+li:last-child { border-bottom:none; }
+li img { width:50px; height:50px; border-radius:50%; margin-right:10px; transition:all 0.3s ease; }
+.verde { color:green; font-weight:bold; }
+.amarillo { color:orange; font-weight:bold; }
+.rojo { color:red; font-weight:bold; text-decoration:line-through; }
+button { padding:8px 12px; margin-left:5px; border:none; border-radius:5px; font-size:16px; cursor:pointer; }
+button:hover { opacity:0.9; }
+#votacion button { display:block; width:100%; margin:5px 0; }
+input[type="number"] { width:60px; padding:6px; margin-right:5px; border-radius:5px; border:1px solid #ccc; }
+@media(max-width:600px){body{padding:5px;} button{font-size:18px; padding:10px;}}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Sala {{ codigo }} - Pestelería</h1>
+<p>Bienvenido, <b>{{ nombre }}</b> {% if es_host %}(HOST){% endif %}</p>
+
+<h3>Jugadores:</h3>
+<ul id="jugadores"></ul>
+
+<button id="asignarBtn" {% if not es_host %}style="display:none"{% endif %}>Descartar roles</button>
+
+<h3>Roles descartados:</h3>
+<ul id="descartados"></ul>
+
+<h3>Votación:</h3>
+<div id="votacion"></div>
+</div>
+
+<script>
+const socket = io();
+const codigo = "{{ codigo }}";
+const nombre = "{{ nombre }}";
+const es_host = {{ es_host|tojson }};
+let jugadores_estado = {};
+let partidasFotos = {};
+
+socket.emit("join",{codigo,nombre});
+
+socket.on("jugadores",(jugadores)=>{
+  jugadores_estado=jugadores;
+  const ul=document.getElementById("jugadores");
+  ul.innerHTML="";
+  for(let j in jugadores){
+    const li=document.createElement("li");
+    let estado=jugadores[j];
+    let clase="";
+    let texto_extra="";
+    if(estado==="activo") clase="verde";
+    else if(estado==="inactivo") { clase="amarillo"; texto_extra=" (inactivo)";}
+    else if(estado==="muerto") clase="rojo";
+
+    li.className=clase;
+
+    const img=document.createElement("img");
+    img.src = partidasFotos[j] || "/static/icon.png";
+    if(estado==="muerto") img.style.filter="grayscale(100%)";
+    li.appendChild(img);
+    li.appendChild(document.createTextNode(j + texto_extra));
+
+    if(es_host && estado!=="muerto"){
+      const btn=document.createElement("button");
+      btn.textContent="💀 Matar";
+      btn.onclick=()=>{socket.emit("matar_jugador",{codigo,jugador:j,host:nombre});};
+      li.appendChild(btn);
+    }
+    ul.appendChild(li);
+  }
+});
+
+document.getElementById("asignarBtn").addEventListener("click",()=>{socket.emit("asignar_roles",{codigo,nombre});});
+
+socket.on("roles_descartados",(lista)=>{
+  const ul=document.getElementById("descartados");
+  ul.innerHTML="";
+  lista.forEach(r=>{
+    const li=document.createElement("li");
+    li.textContent=r;
+    ul.appendChild(li);
+  });
+});
+
+if(es_host){
+  const div=document.createElement("div");
+  div.innerHTML=`<input type="number" id="tiempo" placeholder="Tiempo en segundos">
+  <button id="startHoguera">Iniciar hoguera</button>`;
+  document.querySelector(".container").appendChild(div);
+  document.getElementById("startHoguera").onclick=()=>{
+    const tiempo=document.getElementById("tiempo").value;
+    socket.emit("iniciar_hoguera",{codigo,host:nombre,tiempo});
+  };
+}
+
+socket.on("votacion_iniciada",(data)=>{
+  const div=document.getElementById("votacion");
+  div.innerHTML="";
+  if(data.tiempo!==null) div.innerHTML=`<p>Votación activa. Tiempo: <span id="tiempo">${data.tiempo}</span> s</p>`;
+  if(jugadores_estado[nombre]==="muerto"){div.innerHTML+="<p>No puedes votar, estás muerto.</p>"; return;}
+  if(data.ya_voto){div.innerHTML+="<p>Has votado.</p>"; return;}
+  data.jugadores.forEach(j=>{
+    const btn=document.createElement("button");
+    btn.textContent=j;
+    btn.onclick=()=>{
+      socket.emit("votar",{codigo,votante:nombre,voto:j});
+      div.innerHTML="<p>Has votado.</p>";
+    };
+    div.appendChild(btn);
+  });
+  const nadie=document.createElement("button");
+  nadie.textContent="Nadie";
+  nadie.onclick=()=>{
+    socket.emit("votar",{codigo,votante:nombre,voto:"Nadie"});
+    div.innerHTML="<p>Has votado.</p>";
+    socket.emit("votar",{codigo,votante:nombre,voto:"Nadie"});
+  };
+  div.appendChild(nadie);
+});
+
+socket.on("votacion_tick",(tiempo)=>{
+  const span=document.getElementById("tiempo");
+  if(span) span.textContent=tiempo;
+});
+
+socket.on("votacion_finalizada",(resultados)=>{
+  const div=document.getElementById("votacion");
+  div.innerHTML="<h4>Resultados de la votación:</h4>";
+  for(let r in resultados){
+    const p=document.createElement("p");
+    p.textContent=`${r}: ${resultados[r]} votos`;
+    div.appendChild(p);
+  }
+});
+
+// Status de jugador: activo/inactivo
+if(!es_host){
+  document.addEventListener("visibilitychange",()=>{socket.emit("set_status",{codigo,nombre,status:!document.hidden});});
+  socket.emit("set_status",{codigo,nombre,status:true});
+}
+</script>
+</body>
+</html>
