@@ -7,11 +7,12 @@
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <style>
 body { font-family:sans-serif; margin:0; padding:0; background:#f4f4f4; }
-.container { max-width:500px; margin:auto; padding:10px; background:#fff; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.1); }
+.container { max-width:600px; margin:auto; padding:10px; background:#fff; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.1); }
 h1,h3 { text-align:center; }
-ul { list-style:none; padding:0; margin:0 0 20px 0; max-height:200px; overflow-y:auto; border:1px solid #ddd; background:#fff; border-radius:8px; }
+ul { list-style:none; padding:0; margin:0 0 20px 0; max-height:250px; overflow-y:auto; border:1px solid #ddd; background:#fff; border-radius:8px; }
 li { padding:8px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #eee; position:relative; }
 li:last-child { border-bottom:none; }
+li img { width:70px; height:70px; border-radius:50%; margin-right:10px; transition:all 0.3s ease; object-fit:cover; }
 .verde { color:green; font-weight:bold; }
 .amarillo { color:orange; font-weight:bold; }
 .rojo { color:red; font-weight:bold; }
@@ -19,38 +20,8 @@ button { padding:8px 12px; margin-left:5px; border:none; border-radius:5px; font
 button:hover { opacity:0.9; }
 #votacion button { display:block; width:100%; margin:5px 0; }
 input[type="number"] { width:60px; padding:6px; margin-right:5px; border-radius:5px; border:1px solid #ccc; }
-
-.foto-container {
-  position: relative;
-  display: inline-block;
-  margin-right: 10px;
-}
-.foto-container img {
-  width: 70px;
-  height: 70px;
-  border-radius: 50%;
-  transition: all 0.3s ease;
-}
-.foto-container.muerto img {
-  filter: grayscale(100%);
-}
-.foto-container .cruz {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 70px;
-  height: 70px;
-  display: none;
-  pointer-events: none;
-}
-.foto-container.muerto .cruz {
-  display: block;
-  border-left: 4px solid red;
-  border-right: 4px solid red;
-  transform: rotate(45deg);
-}
-
-@media(max-width:600px){body{padding:5px;} button{font-size:18px; padding:10px;}}
+.cruz { position:absolute; top:0; left:0; background:red; color:white; width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:14px; }
+@media(max-width:600px){body{padding:5px;} button{font-size:18px; padding:10px;} li img{width:60px; height:60px;}}
 </style>
 </head>
 <body>
@@ -61,7 +32,16 @@ input[type="number"] { width:60px; padding:6px; margin-right:5px; border-radius:
 <h3>Jugadores:</h3>
 <ul id="jugadores"></ul>
 
-<button id="asignarBtn" {% if not es_host %}style="display:none"{% endif %}>Descartar roles</button>
+{% if es_host %}
+<button id="asignarBtn">Descartar roles</button>
+<h3>Roles no descartados:</h3>
+<ul id="roles_no_descartados"></ul>
+
+<div>
+<input type="number" id="tiempo" placeholder="Tiempo en segundos">
+<button id="startHoguera">Iniciar hoguera</button>
+</div>
+{% endif %}
 
 <h3>Roles descartados:</h3>
 <ul id="descartados"></ul>
@@ -77,73 +57,83 @@ const nombre = "{{ nombre }}";
 const es_host = {{ es_host|tojson }};
 let jugadores_estado = {};
 let partidasFotos = {};
+let roles_no_descartados = [];
 
 socket.emit("join",{codigo,nombre});
 
-socket.on("jugadores",(jugadores)=>{
-  jugadores_estado=jugadores;
+socket.on("jugadores",(data)=>{
+  jugadores_estado=data.jugadores;
+  partidasFotos=data.fotos;
   const ul=document.getElementById("jugadores");
   ul.innerHTML="";
-
-  for(let j in jugadores){
-    const estado=jugadores[j];
-
+  for(let j in jugadores_estado){
     const li=document.createElement("li");
+    let estado=jugadores_estado[j];
+    li.className = estado==="activo"?"verde":estado==="inactivo"?"amarillo":"rojo";
 
-    const fotoContainer=document.createElement("div");
-    fotoContainer.className="foto-container";
-
+    const cont=document.createElement("div");
+    cont.style.position="relative";
     const img=document.createElement("img");
     img.src = partidasFotos[j] || "/static/icon.png";
-    fotoContainer.appendChild(img);
-
-    const cruz=document.createElement("div");
-    cruz.className="cruz";
-    fotoContainer.appendChild(cruz);
+    if(estado==="muerto") img.style.opacity="0.6";
+    cont.appendChild(img);
 
     if(estado==="muerto"){
-      fotoContainer.classList.add("muerto");
+      const cruz=document.createElement("div");
+      cruz.className="cruz";
+      cruz.textContent="X";
+      cont.appendChild(cruz);
     }
 
-    li.appendChild(fotoContainer);
-
-    let texto_extra="";
-    if(estado==="inactivo") texto_extra=" (inactivo)";
-    li.appendChild(document.createTextNode(j + texto_extra));
+    li.appendChild(cont);
+    li.appendChild(document.createTextNode(j + (estado==="inactivo"?" (inactivo)":"")));
 
     if(es_host && estado!=="muerto"){
       const btn=document.createElement("button");
       btn.textContent="💀 Matar";
-      btn.onclick=()=>{socket.emit("matar_jugador",{codigo,jugador:j});};
+      btn.onclick=()=>{socket.emit("matar_jugador",{codigo,jugador:j,host:nombre});};
       li.appendChild(btn);
     }
-
     ul.appendChild(li);
   }
 });
 
-document.getElementById("asignarBtn").addEventListener("click",()=>{socket.emit("asignar_roles",{codigo,nombre});});
+// -----------------------------------
+// Descartar roles
+// -----------------------------------
+document.getElementById("asignarBtn")?.addEventListener("click",()=>{
+  socket.emit("asignar_roles",{codigo,nombre});
+});
 
-socket.on("roles_descartados",(lista)=>{
+socket.on("roles_descartados",(descartados)=>{
   const ul=document.getElementById("descartados");
   ul.innerHTML="";
-  lista.forEach(r=>{
+  descartados.forEach(r=>{
     const li=document.createElement("li");
     li.textContent=r;
     ul.appendChild(li);
   });
 });
 
-if(es_host){
-  const div=document.createElement("div");
-  div.innerHTML=`<input type="number" id="tiempo" placeholder="Tiempo en segundos">
-  <button id="startHoguera">Iniciar hoguera</button>`;
-  document.querySelector(".container").appendChild(div);
-  document.getElementById("startHoguera").onclick=()=>{
-    const tiempo=document.getElementById("tiempo").value;
-    socket.emit("iniciar_hoguera",{codigo,host:nombre,tiempo});
-  };
-}
+// Mostrar roles no descartados al host
+socket.on("roles_no_descartados",(roles)=>{
+  roles_no_descartados=roles;
+  const ul=document.getElementById("roles_no_descartados");
+  ul.innerHTML="";
+  roles.forEach(r=>{
+    const li=document.createElement("li");
+    li.textContent=r;
+    ul.appendChild(li);
+  });
+});
+
+// -----------------------------------
+// Hoguera / votación
+// -----------------------------------
+document.getElementById("startHoguera")?.addEventListener("click",()=>{
+  const tiempo=document.getElementById("tiempo").value;
+  socket.emit("iniciar_hoguera",{codigo,host:nombre,tiempo});
+});
 
 socket.on("votacion_iniciada",(data)=>{
   const div=document.getElementById("votacion");
@@ -184,6 +174,9 @@ socket.on("votacion_finalizada",(resultados)=>{
   }
 });
 
+// -----------------------------------
+// Status de jugador
+// -----------------------------------
 if(!es_host){
   document.addEventListener("visibilitychange",()=>{socket.emit("set_status",{codigo,nombre,status:!document.hidden});});
   socket.emit("set_status",{codigo,nombre,status:true});

@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, join_room, emit
-import random, string, threading, time
-import os
+import random, string, threading, time, os
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -9,6 +8,20 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 # Estructura de partidas
 # {codigo: {"jugadores":{nombre:estado}, "fotos":{nombre:url}, "roles_descartados":[], "votacion":None}}
 partidas = {}
+# ---- ROLES (pool fijo de 15) ----
+ROLES_BUEN_CIUDADANO = [
+    "demonio", "rey", "adivina", "monja", "guerrero", "tonto del pueblo", "bruja"
+]
+ROLES_CIUDADANO = [
+    "jacob", "ramera", "cazador", "boticario", "celestina", "asesino"
+]
+ROL_DOCTOR = ["doctor peste"]
+ROL_HIJO = ["hijo del doctor"]
+
+ROLES_BASE = ROL_DOCTOR + ROL_HIJO + ROLES_BUEN_CIUDADANO + ROLES_CIUDADANO
+# (Total = 1 + 1 + 7 + 6 = 15)
+
+# Reglas de roles según número de jugadores
 
 # -----------------------------------
 # RUTAS
@@ -44,23 +57,11 @@ def join(data):
         if nombre in partidas[codigo]["jugadores"]:
             if partidas[codigo]["jugadores"][nombre] == "inactivo":
                 partidas[codigo]["jugadores"][nombre] = "activo"
-        else:
-            partidas[codigo]["jugadores"][nombre] = "activo"
-
-        emit("jugadores", partidas[codigo]["jugadores"], to=codigo)
+        emit("jugadores", {
+            "jugadores": partidas[codigo]["jugadores"],
+            "fotos": partidas[codigo]["fotos"]
+        }, to=codigo)
         emit("roles_descartados", partidas[codigo]["roles_descartados"], to=codigo)
-
-        # Enviar estado de votación si hay una activa
-        votacion = partidas[codigo].get("votacion")
-        if votacion and not votacion["finalizada"]:
-            ya_voto = nombre in votacion["votos"]
-            emit("votacion_iniciada", {
-                "jugadores": votacion["jugadores_vivos"],
-                "tiempo": votacion["tiempo_restante"],
-                "ya_voto": ya_voto
-            }, room=request.sid)
-
-
 
 @socketio.on("unirse_con_foto")
 def unirse_con_foto(data):
@@ -74,11 +75,12 @@ def unirse_con_foto(data):
                 partidas[codigo]["jugadores"][nombre] = "activo"
         else:
             partidas[codigo]["jugadores"][nombre] = "activo"
-        partidas[codigo]["fotos"][nombre] = foto  # <- almacenar foto
-    emit("jugadores", partidas[codigo]["jugadores"], to=codigo)
+            partidas[codigo]["fotos"][nombre] = foto
+    emit("jugadores", {
+        "jugadores": partidas[codigo]["jugadores"],
+        "fotos": partidas[codigo]["fotos"]
+    }, to=codigo)
     emit("roles_descartados", partidas[codigo]["roles_descartados"], to=codigo)
-    emit("fotos_jugadores", partidas[codigo]["fotos"], to=codigo)  # <- enviar fotos
-
 
 @socketio.on("set_status")
 def set_status(data):
@@ -88,78 +90,85 @@ def set_status(data):
     if nombre in partidas[codigo]["jugadores"]:
         if partidas[codigo]["jugadores"][nombre] != "muerto":
             partidas[codigo]["jugadores"][nombre] = status
-        emit("jugadores", partidas[codigo]["jugadores"], to=codigo)
+        emit("jugadores", {
+            "jugadores": partidas[codigo]["jugadores"],
+            "fotos": partidas[codigo]["fotos"]
+        }, to=codigo)
 
 # -----------------------------------
 # DESCARTAR ROLES
 # -----------------------------------
+import random
+from flask import request
+
+REGLAS = {
+    5:  {"buen_ciudadano":2, "ciudadano":2, "doctor":1, "hijo":0},
+    6:  {"buen_ciudadano":3, "ciudadano":2, "doctor":1, "hijo":0},
+    7:  {"buen_ciudadano":3, "ciudadano":3, "doctor":1, "hijo":0},
+    8:  {"buen_ciudadano":3, "ciudadano":3, "doctor":1, "hijo":1},
+    9:  {"buen_ciudadano":4, "ciudadano":3, "doctor":1, "hijo":1},
+    10: {"buen_ciudadano":4, "ciudadano":4, "doctor":1, "hijo":1},
+    11: {"buen_ciudadano":4, "ciudadano":4, "doctor":1, "hijo":1},
+    12: {"buen_ciudadano":5, "ciudadano":5, "doctor":1, "hijo":1}
+}
+
 @socketio.on("asignar_roles")
 def asignar_roles(data):
     codigo = data["codigo"]
     if codigo not in partidas:
+        emit("error", "Partida no encontrada", to=request.sid)
         return
 
-    jugadores_vivos = [j for j, s in partidas[codigo]["jugadores"].items() if s != "muerto"]
-    n_jugadores = len(jugadores_vivos)
+    # Solo el host debe poder pulsar el botón (opcional: compruébalo si quieres)
+    # host = data.get("host")
 
-    # Roles disponibles
-    roles = ["demonio","rey","adivina","monja","guerrero","tonto del pueblo","bruja",
-             "jacob","ramera","cazador","boticario","celestina","asesino",
-             "doctor peste","hijo del doctor"]
-
-    # Cantidades mínimas de cada tipo según número de jugadores
-    # Para simplificar, Buen ciudadano = roles genéricos "buen_ciudadano", Ciudadano = roles genéricos "ciudadano"
-    reglas = {
-        5: {"buen_ciudadano":2, "ciudadano":2, "doctor":1, "hijo":0},
-        6: {"buen_ciudadano":3, "ciudadano":2, "doctor":1, "hijo":0},
-        7: {"buen_ciudadano":3, "ciudadano":3, "doctor":1, "hijo":0},
-        8: {"buen_ciudadano":3, "ciudadano":3, "doctor":1, "hijo":1},
-        9: {"buen_ciudadano":4, "ciudadano":3, "doctor":1, "hijo":1},
-        10: {"buen_ciudadano":4, "ciudadano":4, "doctor":1, "hijo":1},
-        11: {"buen_ciudadano":4, "ciudadano":4, "doctor":1, "hijo":1},
-        12: {"buen_ciudadano":5, "ciudadano":5, "doctor":1, "hijo":1}
-    }
-
-    if n_jugadores < 5:  # mínimo para jugar
-        emit("roles_descartados", [], to=codigo)
+    n_jugadores = len(partidas[codigo]["jugadores"])
+    if n_jugadores not in REGLAS:
+        emit("error", f"Número de jugadores {n_jugadores} no soportado", to=request.sid)
         return
 
-    reglas_n = reglas.get(n_jugadores, reglas[12])
+    r = REGLAS[n_jugadores]
 
-    # Separar roles por tipo
-    roles_tipo = {
-        "buen_ciudadano": ["demonio","rey","adivina","monja","guerrero","tonto del pueblo","bruja"],
-        "ciudadano": ["jacob","ramera","cazador","boticario","celestina","asesino"],
-        "doctor": ["doctor peste"],
-        "hijo": ["hijo del doctor"]
-    }
+    # 1) Selección por categorías con nombres reales
+    # Buen ciudadano
+    if r["buen_ciudadano"] > len(ROLES_BUEN_CIUDADANO):
+        emit("error", "No hay suficientes roles de buen ciudadano en el pool", to=request.sid)
+        return
+    buenos = random.sample(ROLES_BUEN_CIUDADANO, r["buen_ciudadano"])
 
-    descartados = []
+    # Ciudadano
+    if r["ciudadano"] > len(ROLES_CIUDADANO):
+        emit("error", "No hay suficientes roles de ciudadano en el pool", to=request.sid)
+        return
+    ciudadanos = random.sample(ROLES_CIUDADANO, r["ciudadano"])
 
-    # Descartar Buen ciudadano
-    n_buen = len(roles_tipo["buen_ciudadano"]) - reglas_n["buen_ciudadano"]
-    descartados += random.sample(roles_tipo["buen_ciudadano"], n_buen)
+    # Doctor peste (siempre 1 según reglas)
+    doctor = ROL_DOCTOR if r["doctor"] == 1 else []
 
-    # Descartar Ciudadano
-    n_ciudadano = len(roles_tipo["ciudadano"]) - reglas_n["ciudadano"]
-    descartados += random.sample(roles_tipo["ciudadano"], n_ciudadano)
+    # Hijo del doctor (0 o 1)
+    hijo = ROL_HIJO if r["hijo"] == 1 else []
 
-    # Doctor nunca se descarta
+    roles_uso = doctor + hijo + buenos + ciudadanos
+    random.shuffle(roles_uso)  # mezclar para no revelar composición
 
-    # Hijo del doctor
-    if reglas_n["hijo"] == 0:
-        descartados += roles_tipo["hijo"]  # descartar el hijo
-    # si reglas_n["hijo"] == 1, no descartar, queda en juego
-    no_descartados = [r for r in roles if r not in descartados]
+    # 2) Descartados = todos los 15 menos los que se usan
+    roles_descartados = ROLES_BASE.copy()
+    for rol in roles_uso:
+        # quitar una instancia exacta del rol usado
+        if rol in roles_descartados:
+            roles_descartados.remove(rol)
 
-    partidas[codigo]["roles_descartados"] = descartados
-    emit("roles_descartados", descartados, to=codigo)
-    # Enviar solo al host los roles completos
-    host_sid = None
-    for sid, session in socketio.server.manager.rooms["/"].items():
-        if sid != codigo:  # filtra la sala si es necesario
-            continue
-    emit("roles_completos", no_descartados, to=data["nombre"])
+    # Guardar en memoria y emitir
+    partidas[codigo]["roles_descartados"] = roles_descartados
+    partidas[codigo]["roles_usados"] = roles_uso  # por si el host los necesita
+
+    # Visible para TODOS: los que NO juegan esta partida
+    emit("roles_descartados", roles_descartados, to=codigo)
+
+    # Opcional: enviar SOLO al host los que sí juegan (si tu frontend lo usa)
+    emit("roles_no_descartados", roles_uso, to=request.sid)
+
+
 
 # -----------------------------------
 # MATAR JUGADOR
@@ -169,7 +178,10 @@ def matar_jugador(data):
     codigo = data["codigo"]
     jugador = data["jugador"]
     partidas[codigo]["jugadores"][jugador] = "muerto"
-    emit("jugadores", partidas[codigo]["jugadores"], to=codigo)
+    emit("jugadores", {
+        "jugadores": partidas[codigo]["jugadores"],
+        "fotos": partidas[codigo]["fotos"]
+    }, to=codigo)
 
 # -----------------------------------
 # VOTACION
@@ -183,7 +195,7 @@ def iniciar_hoguera(data):
     votacion = {
         "tiempo_restante": tiempo,
         "votos": {},
-        "jugadores_vivos": [j for j, s in partidas[codigo]["jugadores"].items() if s != "muerto"],
+        "jugadores_vivos": [j for j,s in partidas[codigo]["jugadores"].items() if s!="muerto"],
         "finalizada": False
     }
     partidas[codigo]["votacion"] = votacion
@@ -196,7 +208,7 @@ def timer_votacion(codigo):
         time.sleep(1)
         partidas[codigo]["votacion"]["tiempo_restante"] -= 1
         socketio.emit("votacion_tick", partidas[codigo]["votacion"]["tiempo_restante"], to=codigo)
-        if len(partidas[codigo]["votacion"]["votos"]) == len([j for j, s in partidas[codigo]["jugadores"].items() if s != "muerto"]):
+        if len(partidas[codigo]["votacion"]["votos"]) == len([j for j,s in partidas[codigo]["jugadores"].items() if s!="muerto"]):
             break
     finalizar_votacion(codigo)
 
@@ -207,7 +219,7 @@ def finalizar_votacion(codigo):
     votacion["finalizada"] = True
     resultados = {}
     for voto in votacion["votos"].values():
-        resultados[voto] = resultados.get(voto, 0) + 1
+        resultados[voto] = resultados.get(voto,0)+1
     socketio.emit("votacion_finalizada", resultados, to=codigo)
     partidas[codigo]["votacion"] = None
 
@@ -225,5 +237,5 @@ def votar(data):
 # RUN
 # -----------------------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT",5000))
     socketio.run(app, host="0.0.0.0", port=port)
