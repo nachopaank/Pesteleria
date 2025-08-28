@@ -62,15 +62,10 @@ def unirse_con_foto(data):
             partidas[codigo]["jugadores"][nombre] = "activo"
             partidas[codigo]["fotos"][nombre] = foto
 
-    # Emitir a todos la lista de jugadores
     emit("jugadores", {
         "jugadores": partidas[codigo]["jugadores"],
         "fotos": partidas[codigo]["fotos"]
     }, to=codigo)
-
-    # Confirmar solo al que se unió
-    emit("unido_ok", {"codigo": codigo, "nombre": nombre}, to=request.sid)
-
 
 @socketio.on("set_status")
 def set_status(data):
@@ -164,6 +159,26 @@ def finalizar_hoguera(data):
 
     votacion["activa"] = False
     emit("votacion_finalizada", votacion["votos"], to=codigo)
+
+# -----------------------------------
+# NUEVA PARTIDA (solo host)
+# -----------------------------------
+@socketio.on("nueva_partida")
+def nueva_partida(data):
+    codigo = data["codigo"]
+    host = data["host"]
+
+    if host != "HOST":
+        return
+
+    if codigo in partidas:
+        for j in partidas[codigo]["jugadores"]:
+            partidas[codigo]["jugadores"][j] = "activo"  # Todos vivos de nuevo
+        partidas[codigo]["votacion"] = None
+        emit("jugadores", {
+            "jugadores": partidas[codigo]["jugadores"],
+            "fotos": partidas[codigo]["fotos"]
+        }, to=codigo)
 
 # -----------------------------------
 # RUN
