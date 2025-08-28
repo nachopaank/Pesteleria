@@ -4,24 +4,52 @@
 <meta charset="UTF-8">
 <title>Sala {{ codigo }} - Pestelería</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <style>
 body { font-family:sans-serif; margin:0; padding:0; background:#f4f4f4; }
-.container { max-width:600px; margin:auto; padding:10px; background:#fff; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.1); }
-h1,h3 { text-align:center; }
-ul { list-style:none; padding:0; margin:0 0 20px 0; max-height:250px; overflow-y:auto; border:1px solid #ddd; background:#fff; border-radius:8px; }
-li { padding:8px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #eee; position:relative; }
-li:last-child { border-bottom:none; }
-li img { width:70px; height:70px; border-radius:50%; margin-right:10px; transition:all 0.3s ease; object-fit:cover; }
-.verde { color:green; font-weight:bold; }
-.amarillo { color:orange; font-weight:bold; }
-.rojo { color:red; font-weight:bold; }
-button { padding:8px 12px; margin-left:5px; border:none; border-radius:5px; font-size:16px; cursor:pointer; }
-button:hover { opacity:0.9; }
-#votacion button { display:block; width:100%; margin:5px 0; }
-input[type="number"] { width:60px; padding:6px; margin-right:5px; border-radius:5px; border:1px solid #ccc; }
-.cruz { position:absolute; top:0; left:0; background:red; color:white; width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:14px; }
-@media(max-width:600px){body{padding:5px;} button{font-size:18px; padding:10px;} li img{width:60px; height:60px;}}
+.container { max-width:800px; margin:auto; padding:10px; background:#fff; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.1); }
+h1,h4 { text-align:center; }
+select, button { padding:6px 10px; margin:5px; border-radius:5px; border:1px solid #ccc; font-size:14px; }
+button { cursor:pointer; }
+.grid {
+  display: grid;
+  gap: 15px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+.grid-item {
+  text-align: center;
+  position: relative;
+}
+.grid-item img {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid transparent;
+  transition: all 0.3s ease;
+}
+.grid-item .cruz {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background:red;
+  color:white;
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:bold;
+  font-size:16px;
+}
+.grid-item span {
+  display: block;
+  margin-top: 5px;
+  font-weight: bold;
+}
+#hoguera_controls { margin-top:20px; text-align:center; display:none; }
+#votos { margin-bottom:10px; font-weight:bold; }
 </style>
 </head>
 <body>
@@ -29,150 +57,188 @@ input[type="number"] { width:60px; padding:6px; margin-right:5px; border-radius:
 <h1>Sala {{ codigo }} - Pestelería</h1>
 <p>Bienvenido, <b>{{ nombre }}</b> {% if es_host %}(HOST){% endif %}</p>
 
-<h3>Jugadores:</h3>
-<ul id="jugadores"></ul>
-
 {% if es_host %}
-<button id="asignarBtn">Descartar roles</button>
-<h3>Roles no descartados:</h3>
-<ul id="roles_no_descartados"></ul>
-
-<div>
-<input type="number" id="tiempo" placeholder="Tiempo en segundos">
-<button id="startHoguera">Iniciar hoguera</button>
+<div id="hoguera_host_ui" style="margin-bottom:20px;">
+  <h4>Iniciar Hoguera</h4>
+  <select id="jugador1_select"></select>
+  <select id="jugador2_select"></select>
+  <button id="btn_iniciar_hoguera">Iniciar Hoguera</button>
 </div>
 {% endif %}
 
-<h3>Roles descartados:</h3>
-<ul id="descartados"></ul>
+<div id="jugadores_grid" class="grid"></div>
 
-<h3>Votación:</h3>
-<div id="votacion"></div>
+<div id="hoguera_controls">
+  <h4>Hoguera:</h4>
+  <div id="votos"></div>
+  <div id="host_controls"></div>
 </div>
 
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 const socket = io();
 const codigo = "{{ codigo }}";
 const nombre = "{{ nombre }}";
 const es_host = {{ es_host|tojson }};
+
 let jugadores_estado = {};
 let partidasFotos = {};
-let roles_no_descartados = [];
+let votacion = null;
 
-socket.emit("join",{codigo,nombre});
+// Captura de foto al cargar la sala
+window.addEventListener("load", async ()=>{
+  const video = document.createElement("video");
+  const canvas = document.createElement("canvas");
+  let fotoData = "/static/icon.png";
 
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:true});
+    video.srcObject = stream;
+    await video.play();
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    fotoData = canvas.toDataURL("image/png");
+  } catch(err){
+    console.log("No se pudo acceder a la cámara, se usará icon.png");
+  }
+
+  socket.emit("unirse_con_foto", {codigo, nombre, foto: fotoData});
+});
+
+// Funciones para grid y selects
+function actualizarSelects(){
+  if(!es_host) return;
+  const sel1 = document.getElementById("jugador1_select");
+  const sel2 = document.getElementById("jugador2_select");
+
+  sel1.innerHTML = '';
+  sel2.innerHTML = '';
+
+  for(let j in jugadores_estado){
+    if(jugadores_estado[j]!=="muerto" && j!=="HOST"){
+      sel1.innerHTML += `<option value="${j}">${j}</option>`;
+      sel2.innerHTML += `<option value="${j}">${j}</option>`;
+    }
+  }
+}
+
+function actualizarGrid(){
+  const container = document.getElementById("jugadores_grid");
+  container.innerHTML = "";
+
+  const total = Object.keys(jugadores_estado).filter(j=>j!=="HOST").length;
+  let columnas = 3;
+  if(total>9) columnas = 5;
+  else if(total>6) columnas = 4;
+  container.style.gridTemplateColumns = `repeat(${columnas}, auto)`;
+
+  for(let j in jugadores_estado){
+    if(j==="HOST") continue;
+    const estado = jugadores_estado[j];
+    const div = document.createElement("div");
+    div.className = "grid-item";
+
+    const img = document.createElement("img");
+    img.src = partidasFotos[j] || "/static/icon.png";
+
+    if(estado==="activo"){ img.style.borderColor="green"; img.style.filter="none"; }
+    else if(estado==="inactivo"){ img.style.borderColor="orange"; img.style.filter="none"; }
+    else if(estado==="muerto"){ img.style.borderColor="red"; img.style.filter="grayscale(100%)"; 
+      const cruz = document.createElement("div"); cruz.className="cruz"; cruz.textContent="X"; div.appendChild(cruz); }
+
+    div.appendChild(img);
+    const span = document.createElement("span"); span.textContent=j; div.appendChild(span);
+
+    if(es_host && estado!=="muerto"){
+      const btn = document.createElement("button");
+      btn.textContent="💀 Matar";
+      btn.onclick = ()=>socket.emit("matar_jugador",{codigo,jugador:j});
+      div.appendChild(btn);
+    }
+
+    container.appendChild(div);
+  }
+}
+
+// -----------------------------------
+// SOCKETS
+// -----------------------------------
 socket.on("jugadores",(data)=>{
   jugadores_estado=data.jugadores;
   partidasFotos=data.fotos;
-  const ul=document.getElementById("jugadores");
-  ul.innerHTML="";
-  for(let j in jugadores_estado){
-    const li=document.createElement("li");
-    let estado=jugadores_estado[j];
-    li.className = estado==="activo"?"verde":estado==="inactivo"?"amarillo":"rojo";
-
-    const cont=document.createElement("div");
-    cont.style.position="relative";
-    const img=document.createElement("img");
-    img.src = partidasFotos[j] || "/static/icon.png";
-    if(estado==="muerto") img.style.opacity="0.6";
-    cont.appendChild(img);
-
-    if(estado==="muerto"){
-      const cruz=document.createElement("div");
-      cruz.className="cruz";
-      cruz.textContent="X";
-      cont.appendChild(cruz);
-    }
-
-    li.appendChild(cont);
-    li.appendChild(document.createTextNode(j + (estado==="inactivo"?" (inactivo)":"")));
-
-    if(es_host && estado!=="muerto"){
-      const btn=document.createElement("button");
-      btn.textContent="💀 Matar";
-      btn.onclick=()=>{socket.emit("matar_jugador",{codigo,jugador:j,host:nombre});};
-      li.appendChild(btn);
-    }
-    ul.appendChild(li);
-  }
-});
-
-// -----------------------------------
-// Descartar roles
-// -----------------------------------
-document.getElementById("asignarBtn")?.addEventListener("click",()=>{
-  socket.emit("asignar_roles",{codigo,nombre});
-});
-
-socket.on("roles_descartados",(descartados)=>{
-  const ul=document.getElementById("descartados");
-  ul.innerHTML="";
-  descartados.forEach(r=>{
-    const li=document.createElement("li");
-    li.textContent=r;
-    ul.appendChild(li);
-  });
-});
-
-// Mostrar roles no descartados al host
-socket.on("roles_no_descartados",(roles)=>{
-  roles_no_descartados=roles;
-  const ul=document.getElementById("roles_no_descartados");
-  ul.innerHTML="";
-  roles.forEach(r=>{
-    const li=document.createElement("li");
-    li.textContent=r;
-    ul.appendChild(li);
-  });
-});
-
-// -----------------------------------
-// Hoguera / votación
-// -----------------------------------
-document.getElementById("startHoguera")?.addEventListener("click",()=>{
-  const tiempo=document.getElementById("tiempo").value;
-  socket.emit("iniciar_hoguera",{codigo,host:nombre,tiempo});
+  actualizarGrid();
+  actualizarSelects();
 });
 
 socket.on("votacion_iniciada",(data)=>{
-  const div=document.getElementById("votacion");
-  div.innerHTML="";
-  if(data.tiempo!==null) div.innerHTML=`<p>Votación activa. Tiempo: <span id="tiempo">${data.tiempo}</span> s</p>`;
-  if(jugadores_estado[nombre]==="muerto"){div.innerHTML+="<p>No puedes votar, estás muerto.</p>"; return;}
-  if(data.ya_voto){div.innerHTML+="<p>Has votado.</p>"; return;}
-  data.jugadores.forEach(j=>{
-    const btn=document.createElement("button");
-    btn.textContent=j;
-    btn.onclick=()=>{
-      socket.emit("votar",{codigo,votante:nombre,voto:j});
-      div.innerHTML="<p>Has votado.</p>";
-    };
-    div.appendChild(btn);
-  });
-  const nadie=document.createElement("button");
-  nadie.textContent="Nadie";
-  nadie.onclick=()=>{
-    socket.emit("votar",{codigo,votante:nombre,voto:"Nadie"});
-    div.innerHTML="<p>Has votado.</p>";
-  };
-  div.appendChild(nadie);
+  votacion = data;
+  document.getElementById("hoguera_controls").style.display="block";
+  actualizarVotos(votacion.votos);
+  if(es_host) mostrarBotonesHost();
 });
 
-socket.on("votacion_tick",(tiempo)=>{
-  const span=document.getElementById("tiempo");
-  if(span) span.textContent=tiempo;
+socket.on("votos_actualizados",(votos)=>{
+  actualizarVotos(votos);
 });
 
-socket.on("votacion_finalizada",(resultados)=>{
-  const div=document.getElementById("votacion");
-  div.innerHTML="<h4>Resultados de la votación:</h4>";
-  for(let r in resultados){
-    const p=document.createElement("p");
-    p.textContent=`${r}: ${resultados[r]} votos`;
-    div.appendChild(p);
+socket.on("votacion_finalizada",(votos)=>{
+  actualizarVotos(votos);
+  alert("Hoguera finalizada!\nResultado:\n" + votacion.jugadores[0] + ": " + votos[votacion.jugadores[0]] + "\n" + votacion.jugadores[1] + ": " + votos[votacion.jugadores[1]] + "\nNadie: " + votos["Nadie"]);
+  document.getElementById("host_controls").innerHTML="";
+  votacion=null;
+});
+
+// -----------------------------------
+// Hoguera
+// -----------------------------------
+function actualizarVotos(votos){
+  const div = document.getElementById("votos");
+  if(votacion){
+    div.innerHTML = votacion.jugadores.map(j=>j + ": " + votos[j]).join("<br>") + "<br>Nadie: " + votos["Nadie"];
   }
-});
+}
+
+function mostrarBotonesHost(){
+  const div = document.getElementById("host_controls");
+  div.innerHTML = "";
+  votacion.jugadores.forEach(j=>{
+    const btnSum = document.createElement("button");
+    btnSum.textContent = "+ " + j;
+    btnSum.onclick = ()=>socket.emit("modificar_voto",{codigo, jugador:j, accion:"sumar", host:nombre});
+    const btnRest = document.createElement("button");
+    btnRest.textContent = "- " + j;
+    btnRest.onclick = ()=>socket.emit("modificar_voto",{codigo, jugador:j, accion:"restar", host:nombre});
+    div.appendChild(btnSum);
+    div.appendChild(btnRest);
+  });
+
+  const btnNadie = document.createElement("button");
+  btnNadie.textContent = "+ Nadie";
+  btnNadie.onclick = ()=>socket.emit("modificar_voto",{codigo,jugador:"Nadie",accion:"sumar",host:nombre});
+  div.appendChild(btnNadie);
+
+  const btnFinal = document.createElement("button");
+  btnFinal.textContent="Finalizar Hoguera";
+  btnFinal.onclick = ()=>socket.emit("finalizar_hoguera",{codigo, host:nombre});
+  div.appendChild(btnFinal);
+}
+
+// Iniciar hoguera host
+if(es_host){
+  document.getElementById("btn_iniciar_hoguera").onclick=()=>{
+    const j1=document.getElementById("jugador1_select").value;
+    const j2=document.getElementById("jugador2_select").value;
+    if(j1===j2){
+      alert("Debes escoger dos jugadores distintos");
+      return;
+    }
+    socket.emit("iniciar_hoguera",{codigo, jugador1:j1, jugador2:j2, host:nombre});
+  }
+}
 
 // -----------------------------------
 // Status de jugador
