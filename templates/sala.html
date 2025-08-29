@@ -27,6 +27,16 @@ button:hover { background:#2196F3; color:#fff; border:none; }
   justify-content: center;
   margin-bottom: 20px;
 }
+@media (max-width: 600px) {
+  .grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 601px) and (max-width: 900px) {
+  .grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (min-width: 901px) {
+  .grid { grid-template-columns: repeat(5, 1fr); }
+}
+
 .grid-item {
   text-align: center;
   position: relative;
@@ -37,6 +47,7 @@ button:hover { background:#2196F3; color:#fff; border:none; }
   transition: transform 0.2s;
 }
 .grid-item:hover { transform: translateY(-5px); }
+
 .grid-item img.jugador-foto {
   width: 100px;
   height: 100px;
@@ -46,18 +57,21 @@ button:hover { background:#2196F3; color:#fff; border:none; }
   transition: all 0.3s ease;
   display: block;
 }
+
 .grid-item .calavera {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100px;
-  height: 100px;
+  top: 50%;
+  left: 50%;
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
   background: url('/static/skull.png') no-repeat center center;
   background-size: contain;
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
+  transform: translate(-50%, -50%);
 }
+
 .grid-item span {
   display: block;
   margin-top: 8px;
@@ -86,6 +100,141 @@ button:hover { background:#2196F3; color:#fff; border:none; }
 </style>
 </head>
 <body>
+  <!-- Botón Reglas arriba a la derecha -->
+<button id="btn_reglas" class="btn-reglas">📜 Reglas</button>
+
+<!-- Modal -->
+<div id="modal_reglas" class="modal">
+  <div class="modal-content">
+    <span class="close">&times;</span>
+    <h2>Reglas del Juego</h2>
+
+    <h3 class="verde">🟢 Roles Verdes</h3>
+    <ul>
+      <li><b>Monja</b> – Proteges a alguien durante la noche. Nunca la misma persona 2 veces seguidas. Puedes protegerte a ti mismo. Lo único que supera tu protección es el amor.</li>
+      <li><b>Guerrero</b> – Tienes 2 vidas.</li>
+      <li><b>Demonio</b> – Una vez por partida. Cada noche te despiertas, se te dice qué personas han muerto, y puedes elegir convertirte en una de ellas.</li>
+      <li><b>Adivina</b> – Cada noche señalas a alguien y se te muestra su rol.</li>
+      <li><b>Bruja</b> – Una poción de vida y una de muerte. Únicas por partida.</li>
+      <li><b>Tonto del pueblo</b> – Si pierdes al final de una hoguera exclamas "soy tonto" y no mueres.</li>
+      <li><b>Vampiro</b> – La primera noche eliges una víctima. Si consigues matarlo en una hoguera, ganas una vida. Cuando esta persona muera (gane o no vida) la siguiente noche escoges nueva víctima.</li>
+    </ul>
+
+    <h3 class="rojo">🔴 Roles Rojos</h3>
+    <ul>
+      <li><b>Cazador</b> – Al morir disparas a alguien durante el día.</li>
+      <li><b>Asesino</b> – Al morir en hoguera apuñalas inmediatamente a alguien.</li>
+      <li><b>Ramera</b> – Cada noche te acuestas con alguien, anulando su habilidad nocturna. Nunca la misma persona 2 veces seguidas.</li>
+      <li><b>Boticario</b> – Drogas a alguien cada noche. Durante el día solo podrá hablar con vocales. Repetir solo si incumple la restricción.</li>
+      <li><b>Jacob</b> – La primera noche te enamoras. Si tu amor muere, te conviertes en hombre lobo y matarás cada noche hasta vengarte.</li>
+      <li><b>Celestina</b> – Enamoras a 2 personas. Si una muere, la otra muere también.</li>
+    </ul>
+
+    <h3 class="azul">🔵 Roles Azules</h3>
+    <ul>
+      <li><b>Doctor peste</b> – Envenenas a alguien cada noche.</li>
+      <li><b>Hijo del doctor peste</b> – Te conviertes en el Doctor si éste muere. Si mueres en hoguera, el Doctor envenena 2 veces la siguiente noche.</li>
+      <li><b>Doctor de la muerte</b> – Envenenas junto a los demás doctores. Ganas si eres el único Doctor vivo al final.</li>
+    </ul>
+
+    <h3>⚔️ Mecánicas Generales</h3>
+    <p>El juego tiene 2 bandos: <b>Pueblo</b> y <b>Doctores</b>.  
+    Se reparten los roles aleatoriamente y solo cada uno conoce el suyo.  
+    La partida avanza en ciclos: <b>Noche → Día → Noche</b> hasta que un bando gane.</p>
+
+    <h3>🌙 Noche</h3>
+    <ul>
+      <li>El narrador manda a dormir al pueblo (ojos cerrados).</li>
+      <li>Solo abre los ojos el rol llamado por el narrador.</li>
+      <li>La comunicación es con gestos: pulgar abajo (matar), pulgar arriba (revivir), señalar para habilidades.</li>
+    </ul>
+
+    <h3>🌞 Día</h3>
+    <ul>
+      <li>El narrador anuncia quién ha muerto.</li>
+      <li>El pueblo discute.</li>
+      <li>El primer día se elige un <b>rey</b> por votación (desempata en caso de empate).</li>
+      <li>Durante el día puede iniciarse una <b>hoguera</b> (“[nombre] a la hoguera”) → se vota entre acusado, acusador o en blanco.</li>
+      <li>También puede haber una <b>rebelión</b>: si tiene mayoría se nombra un nuevo rey; si fracasa, el rey decide si ejecuta al rebelde.</li>
+    </ul>
+
+    <p><b>Nota:</b> Solo puede haber una hoguera y/o una rebelión por día.</p>
+  </div>
+</div>
+
+<style>
+/* Botón Reglas */
+.btn-reglas {
+  position: fixed;
+  top: 15px;
+  right: 15px;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 12px;
+  background: #2196F3;
+  color: white;
+  font-weight: bold;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  cursor: pointer;
+  transition: 0.2s;
+  z-index: 1000;
+}
+.btn-reglas:hover { background: #1769aa; }
+
+/* Modal */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 999;
+  padding-top: 80px;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  background-color: rgba(0,0,0,0.6);
+}
+.modal-content {
+  background: #fff;
+  margin: auto;
+  padding: 20px;
+  border-radius: 20px;
+  max-width: 700px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+  overflow-y: auto;
+  max-height: 80vh;
+}
+.modal-content h2 {
+  text-align:center;
+  margin-bottom:15px;
+}
+.modal-content h3 {
+  margin-top:20px;
+}
+.modal-content ul {
+  padding-left: 20px;
+}
+.close {
+  float: right;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.close:hover { color: red; }
+
+/* Colores roles */
+.verde { color: green; }
+.rojo { color: darkred; }
+.azul { color: navy; }
+</style>
+
+<script>
+const modal = document.getElementById("modal_reglas");
+const btn = document.getElementById("btn_reglas");
+const span = document.querySelector(".modal .close");
+
+btn.onclick = ()=>{ modal.style.display = "block"; }
+span.onclick = ()=>{ modal.style.display = "none"; }
+window.onclick = (event)=>{ if(event.target == modal){ modal.style.display = "none"; } }
+</script>
+
 <div class="container">
 <h1>Sala {{ codigo }} - Pestelería</h1>
 <p style="text-align:center; font-size:1.1rem;">Bienvenido, <b>{{ nombre }}</b> {% if es_host %}(HOST){% endif %}</p>
@@ -166,12 +315,6 @@ function actualizarGrid(){
   const container = document.getElementById("jugadores_grid");
   container.innerHTML = "";
 
-  const total = Object.keys(jugadores_estado).filter(j=>j!=="HOST").length;
-  let columnas = 3;
-  if(total>9) columnas = 5;
-  else if(total>6) columnas = 4;
-  container.style.gridTemplateColumns = `repeat(${columnas}, auto)`;
-
   for(let j in jugadores_estado){
     if(j==="HOST") continue;
     const estado = jugadores_estado[j];
@@ -187,7 +330,6 @@ function actualizarGrid(){
     else if(estado==="muerto"){ 
       img.style.borderColor="red"; 
       img.style.filter="grayscale(100%)"; 
-
       const skull = document.createElement("div"); 
       skull.className="calavera"; 
       div.appendChild(skull); 
@@ -217,6 +359,7 @@ socket.on("jugadores",(data)=>{
   actualizarSelects();
 });
 
+// Hoguera y votación
 socket.on("votacion_iniciada",(data)=>{
   votacion = data;
   document.getElementById("hoguera_controls").style.display="block";
@@ -224,10 +367,7 @@ socket.on("votacion_iniciada",(data)=>{
   if(es_host) mostrarBotonesHost();
 });
 
-socket.on("votos_actualizados",(votos)=>{
-  actualizarVotos(votos);
-});
-
+socket.on("votos_actualizados",(votos)=>{ actualizarVotos(votos); });
 socket.on("votacion_finalizada",(votos)=>{
   actualizarVotos(votos);
   alert("Hoguera finalizada!\nResultado:\n" + votacion.jugadores[0] + ": " + votos[votacion.jugadores[0]] + "\n" + votacion.jugadores[1] + ": " + votos[votacion.jugadores[1]] + "\nNadie: " + votos["Nadie"]);
@@ -236,7 +376,7 @@ socket.on("votacion_finalizada",(votos)=>{
 });
 
 // -----------------------------------
-// Hoguera
+// Funciones Hoguera
 // -----------------------------------
 function actualizarVotos(votos){
   const div = document.getElementById("votos");
@@ -270,27 +410,21 @@ function mostrarBotonesHost(){
   div.appendChild(btnFinal);
 }
 
-// Iniciar hoguera host
+// Iniciar hoguera y nueva partida host
 if(es_host){
   document.getElementById("btn_iniciar_hoguera").onclick=()=>{
     const j1=document.getElementById("jugador1_select").value;
     const j2=document.getElementById("jugador2_select").value;
-    if(j1===j2){
-      alert("Debes escoger dos jugadores distintos");
-      return;
-    }
+    if(j1===j2){ alert("Debes escoger dos jugadores distintos"); return; }
     socket.emit("iniciar_hoguera",{codigo, jugador1:j1, jugador2:j2, host:nombre});
   }
 
-  // Nueva partida: todos vivos
   document.getElementById("btn_nueva_partida").onclick = ()=>{
     socket.emit("nueva_partida",{codigo, host:nombre});
   }
 }
 
-// -----------------------------------
 // Status de jugador
-// -----------------------------------
 if(!es_host){
   document.addEventListener("visibilitychange",()=>{socket.emit("set_status",{codigo,nombre,status:!document.hidden});});
   socket.emit("set_status",{codigo,nombre,status:true});
